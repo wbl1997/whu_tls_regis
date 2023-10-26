@@ -19,6 +19,8 @@ import open3d as o3d
 import laspy
 import gtsam
 
+import icp_info
+
 VOXEL_SIZE = 0.05
 VISUALIZE = True
 
@@ -256,6 +258,9 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     result_T = reg_p2p.transformation
     print(result_T)
     print("regis inormation: ", reg_p2p.inlier_rmse)
+    reg_result = icp_info.RegResult(reg_p2p)
+    rightinvarianterror = False
+    reg_result.compute_icp_info(A_pcd, B_pcd, False, rightinvarianterror)
 
     # draw_registration_result(A_pcd_raw, B_pcd_raw, result_T)
 
@@ -277,7 +282,7 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     np.savetxt(T_save_path, (result_T[:3, :]).flatten().reshape(1, -1), delimiter=' ', fmt='%.10f')
     # save rmse path
     RMSE_save_path = path+"result/trans/"+fileCur+"_"+fileNext+"_rmse.txt"
-    np.savetxt(RMSE_save_path, np.array([reg_p2p.inlier_rmse]), delimiter=' ', fmt='%.10f')
+    reg_result.save(RMSE_save_path)
     return reg_p2p.inlier_rmse
 
 def pgo(path, filename_list):
