@@ -22,7 +22,7 @@ import gtsam
 VOXEL_SIZE = 0.05
 VISUALIZE = True
 
-def read_las_topcd(las_file):
+def read_las_topcd(las_file, step_len=10):
     # 打开LAS文件
     las_reader = laspy.read(las_file)
     # 获取点云数据
@@ -36,9 +36,9 @@ def read_las_topcd(las_file):
     y_offset = las_reader.header.offset[1]
     z_offset = las_reader.header.offset[2]
     # 获取点的坐标，例如 X、Y、Z 坐标，并间隔10个点取一个点
-    x = point_cloud['X'][::10]*x_scale + x_offset
-    y = point_cloud['Y'][::10]*y_scale + y_offset
-    z = point_cloud['Z'][::10]*z_scale + z_offset
+    x = point_cloud['X'][::step_len]*x_scale + x_offset
+    y = point_cloud['Y'][::step_len]*y_scale + y_offset
+    z = point_cloud['Z'][::step_len]*z_scale + z_offset
     print("x: ", x.min(), x.max(), x.shape)
     # 将xyz转换为pcd格式
     ropcd = o3d.geometry.PointCloud()
@@ -60,56 +60,8 @@ def data_down_sample(path, filename_list):
         b = np.random.rand(1)
         A_pcd_raw.paint_uniform_color([r, g, b])
 
-        A_pcd_raw = A_pcd_raw.voxel_down_sample(voxel_size=0.05)
+        A_pcd_raw = A_pcd_raw.voxel_down_sample(voxel_size=VOXEL_SIZE)
         o3d.io.write_point_cloud(path+"result/downsample/"+fileCur+".pcd", A_pcd_raw)
-
-def whutls_compute_trans(path, filename_list):
-    if (os.path.exists(path)==False):
-        print(path+"NOT FIND!!!")
-        return
-    for i in np.arange(0, len(filename_list)-1):
-    # for i in np.arange(35, 37):
-        fileCur = str(filename_list[i])
-        fileNext = str(filename_list[i+1])
-        print("fileCur: ", fileCur, ", fileNext: ", fileNext)
-        # read pcd
-        B_pcd_raw = o3d.io.read_point_cloud(path+"result/downsample/"+fileCur+".pcd")
-        A_pcd_raw = o3d.io.read_point_cloud(path+"result/downsample/"+fileNext+".pcd")
-
-        # voxel downsample
-        A_pcd = A_pcd_raw.voxel_down_sample(voxel_size=VOXEL_SIZE)
-        B_pcd = B_pcd_raw.voxel_down_sample(voxel_size=VOXEL_SIZE)
-        print("A_pcd: ", np.asarray(A_pcd.points).shape)
-        print("B_pcd: ", np.asarray(B_pcd.points).shape)
-
-        print("refine use icp!", fileCur, fileNext)
-        result_T = np.array( [[ 1,   -0,      0,   -0],
-                              [ 0.0,  1,      0,   -0],
-                              [ 0,    0,      1,  0.0],
-                              [ 0.0,  0.0,  0.0,  1.0]]) 
-        A_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=2, max_nn=30))
-        B_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=2, max_nn=30))
-        threshold = 0.1
-        reg_p2p = o3d.pipelines.registration.registration_icp(
-            A_pcd, B_pcd, threshold, result_T,
-            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
-        )
-        result_T = reg_p2p.transformation
-        print(result_T)
-
-        # draw_registration_result(A_pcd_raw, B_pcd_raw, result_T)
-        # save the transform source points and show regis_err
-        A_pcd_raw_temp = copy.deepcopy(A_pcd_raw)
-        A_pcd = A_pcd_raw_temp.voxel_down_sample(voxel_size=VOXEL_SIZE)
-        A_pcd.transform(result_T)
-        o3d.io.write_point_cloud(path+"result/regis/"+fileNext+".pcd", A_pcd)
-        B_pcd_raw_temp = copy.deepcopy(B_pcd_raw)
-        B_pcd = B_pcd_raw_temp.voxel_down_sample(voxel_size=VOXEL_SIZE)
-        o3d.io.write_point_cloud(path+"result/regis/"+fileCur+".pcd", B_pcd)
-        # save T path
-        T_save_path = path+"result/trans/"+fileCur+"_"+fileNext+".txt"
-        np.savetxt(T_save_path, (result_T[:3, :]).flatten().reshape(1, -1), delimiter=' ', fmt='%.10f')
 
 def whutls_regis_from_relative_trans(path, filename_list):
     if (os.path.exists(path)==False):
@@ -149,79 +101,6 @@ def whutls_regis_from_absolute_trans(path, filename_list):
         A_pcd_raw.transform(T_absolute)
         o3d.io.write_point_cloud(path+"result/regis/"+str(filename_list[i])+".pcd", A_pcd_raw)
 
-def whutls_regis(path, filename_list):
-    if (os.path.exists(path)==False):
-        print(path+"NOT FIND!!!")
-        return
-    for i in np.arange(0, len(filename_list)-1):
-    # for i in np.arange(35, 37):
-        fileCur = str(filename_list[i])
-        fileNext = str(filename_list[i+1])
-        print("fileCur: ", fileCur, ", fileNext: ", fileNext)
-        # read las to pcd
-        if (os.path.exists(path+"result/"+fileCur+".pcd")):
-            print("has pcd", path+"result/"+fileCur+".pcd")
-            B_pcd_raw = o3d.io.read_point_cloud(path+"result/"+fileCur+".pcd")
-        else:
-            B_pcd_raw = read_las_topcd(path+fileCur+".las")
-        A_pcd_raw = read_las_topcd(path+fileNext+".las")
-
-        # show raw data
-        A_pcd_raw.paint_uniform_color([1, 0.706, 0]) # show A_pcd in blue
-        B_pcd_raw.paint_uniform_color([0, 0.651, 0.929]) # show B_pcd in red
-
-        A_pcd_raw = A_pcd_raw.voxel_down_sample(voxel_size=0.05)
-        B_pcd_raw = B_pcd_raw.voxel_down_sample(voxel_size=0.05)
-        print("A_pcd_raw: ", np.asarray(A_pcd_raw.points).shape)
-        print("B_pcd_raw: ", np.asarray(B_pcd_raw.points).shape)
-
-        # voxel downsample
-        A_pcd = A_pcd_raw.voxel_down_sample(voxel_size=VOXEL_SIZE)
-        B_pcd = B_pcd_raw.voxel_down_sample(voxel_size=VOXEL_SIZE)
-        print("A_pcd: ", np.asarray(A_pcd.points).shape)
-        print("B_pcd: ", np.asarray(B_pcd.points).shape)
-        # if VISUALIZE:
-        #     o3d.visualization.draw_geometries([A_pcd, B_pcd]) # plot downsampled A and B
-
-        # coarse match
-        # result_T = coarse_match_gm(A_pcd_raw, B_pcd_raw, A_pcd, B_pcd)
-        # result_T = refine_match(A_pcd_raw, B_pcd_raw, A_pcd, B_pcd, result_T, "ICP")
-        # result_T = np.array( [[ 0.12, -0.99, 0, -100],
-        #                       [ 0.99,  0.12,  0, -28],
-        #                       [0, 0, 1,  4.7],
-        #                       [ 0.0,  0.0,  0.0,  1.0]])  # 0-6
-
-        print("refine use icp!!!")
-        result_T = np.array( [[ 1,   -0,      0,   -0],
-                              [ 0.0,  1,      0,   -0],
-                              [ 0,    0,      1,  0.0],
-                              [ 0.0,  0.0,  0.0,  1.0]]) 
-        A_pcd = A_pcd_raw.voxel_down_sample(voxel_size=0.1)
-        B_pcd = B_pcd_raw.voxel_down_sample(voxel_size=0.1)
-        A_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=5, max_nn=30))
-        B_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=5, max_nn=30))
-        threshold = 0.5
-        reg_p2p = o3d.pipelines.registration.registration_icp(
-            A_pcd, B_pcd, threshold, result_T,
-            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
-        )
-        result_T = reg_p2p.transformation
-        print(result_T)
-
-        # draw_registration_result(A_pcd_raw, B_pcd_raw, result_T)
-        # save the transform source points and show regis_err
-        A_pcd_raw_temp = copy.deepcopy(A_pcd_raw)
-        A_pcd = A_pcd_raw_temp.voxel_down_sample(voxel_size=VOXEL_SIZE)
-        A_pcd.transform(result_T)
-        o3d.io.write_point_cloud(path+"result/"+fileNext+".pcd", A_pcd)
-        B_pcd_raw_temp = copy.deepcopy(B_pcd_raw)
-        B_pcd = B_pcd_raw_temp.voxel_down_sample(voxel_size=VOXEL_SIZE)
-        o3d.io.write_point_cloud(path+"result/"+fileCur+".pcd", B_pcd)
-        # save T path
-        T_save_path = path+"result/trans/"+fileCur+"_"+fileNext+".txt"
-        np.savetxt(T_save_path, (result_T[:3, :]).flatten().reshape(1, -1), delimiter=' ', fmt='%.10f')
-
 def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     if (os.path.exists(path)==False):
         print(path+"NOT FIND!!!")
@@ -235,8 +114,8 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     A_pcd_raw = o3d.io.read_point_cloud(path+"result/downsample/"+fileNext+".pcd")
 
     # voxel downsample
-    A_pcd = A_pcd_raw.voxel_down_sample(voxel_size=VOXEL_SIZE)
-    B_pcd = B_pcd_raw.voxel_down_sample(voxel_size=VOXEL_SIZE)
+    A_pcd = copy.deepcopy(A_pcd_raw)
+    B_pcd = copy.deepcopy(B_pcd_raw)
     print("A_pcd: ", np.asarray(A_pcd.points).shape)
     print("B_pcd: ", np.asarray(B_pcd.points).shape)
 
@@ -257,20 +136,16 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     print(result_T)
     print("regis inormation: ", reg_p2p.inlier_rmse)
 
-    # draw_registration_result(A_pcd_raw, B_pcd_raw, result_T)
-
     ### save the transform source points and show regis_err
     # mkdir save path
     pcd_pair_save_path = path+"result/regis/PCD_pairs/"+fileCur+"_"+fileNext+"/"
     if (os.path.exists(pcd_pair_save_path)==False):
         os.makedirs(pcd_pair_save_path)
-    A_pcd_raw_temp = copy.deepcopy(A_pcd_raw)
-    A_pcd = A_pcd_raw_temp.voxel_down_sample(voxel_size=VOXEL_SIZE)
+    A_pcd = copy.deepcopy(A_pcd_raw)
     o3d.io.write_point_cloud(pcd_pair_save_path+fileNext+".pcd", A_pcd)
     A_pcd.transform(result_T)
     o3d.io.write_point_cloud(pcd_pair_save_path+fileNext+"_regisd.pcd", A_pcd)
-    B_pcd_raw_temp = copy.deepcopy(B_pcd_raw)
-    B_pcd = B_pcd_raw_temp.voxel_down_sample(voxel_size=VOXEL_SIZE)
+    B_pcd = copy.deepcopy(B_pcd_raw)
     o3d.io.write_point_cloud(pcd_pair_save_path+fileCur+".pcd", B_pcd)
     # save T path
     T_save_path = path+"result/trans/"+fileCur+"_"+fileNext+".txt"
@@ -372,10 +247,7 @@ if __name__ == '__main__':
     #     SeqNext = SeqCur+1
     #     inlier_rmse = whutls_one2one_match(path, filename_list, SeqCur, SeqNext)
     #     inlier_rmse_group.append(inlier_rmse)
-    # # SeqCur = 56
-    # # SeqNext = SeqCur+1
-    # # whutls_one2one_match(path, filename_list, SeqCur, SeqNext)
-
+    
     # SeqCur = 35
     # SeqNext = 36
     # whutls_one2one_match(path, filename_list, SeqCur, SeqNext)
