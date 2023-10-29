@@ -18,8 +18,8 @@ import numpy as np
 import open3d as o3d
 import laspy
 import gtsam
-
-import icp_info
+import matplotlib.pyplot as plt
+from scipy.linalg import svd
 
 VOXEL_SIZE = 0.05
 VISUALIZE = True
@@ -137,9 +137,6 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     result_T = reg_p2p.transformation
     print(result_T)
     print("regis inormation: ", reg_p2p.inlier_rmse)
-    reg_result = icp_info.RegResult(reg_p2p)
-    rightinvarianterror = False
-    reg_result.compute_icp_info(A_pcd, B_pcd, False, rightinvarianterror)
 
     ### save the transform source points and show regis_err
     # mkdir save path
@@ -157,7 +154,7 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     np.savetxt(T_save_path, (result_T[:3, :]).flatten().reshape(1, -1), delimiter=' ', fmt='%.10f')
     # save rmse path
     RMSE_save_path = path+"result/trans/"+fileCur+"_"+fileNext+"_rmse.txt"
-    reg_result.save(RMSE_save_path)
+    np.savetxt(RMSE_save_path, np.array([reg_p2p.inlier_rmse]), delimiter=' ', fmt='%.10f')
     return reg_p2p.inlier_rmse
 
 def pgo(path, filename_list):
@@ -179,7 +176,12 @@ def pgo(path, filename_list):
         # 初始化位置和姿态为单位矩阵4*4
         initial_estimate.insert(key[i], gtsam.Pose3(np.eye(4)))
 
-    # 2. 添加相邻位姿约束
+    # 2. 添加先验约束和相邻位姿约束
+    # 添加prior factor
+    odomNoiseVector6 = np.array([1e-12, 1e-12, 1e-12, 1e-12, 1e-12, 1e-12])
+    noise_model = gtsam.noiseModel.Diagonal.Variances(odomNoiseVector6)
+    graph.add(gtsam.PriorFactorPose3(key[0], gtsam.Pose3(np.eye(4)), noise_model))
+    # 添加相邻位姿约束
     for i in np.arange(0, len(filename_list)-1):
         fileCur = filename_list[i]
         fileNext = filename_list[i+1]
@@ -231,10 +233,83 @@ def pgo(path, filename_list):
         T_absolute = optimized_pose[i].matrix()
         np.savetxt(trans_pgo_path, (T_absolute[:3, :]).flatten().reshape(1, -1), delimiter=' ', fmt='%.10f')
 
+def compute_pose_diff(path, result1_file, result2_file, filename_list):
+    if (os.path.exists(path)==False):
+        print(path+"NOT FIND!!!")
+        return
+    
+    angle_diff_group = []
+    dist_diff_group = []
+    # path0_1 = path+result1_file+"/trans/absolute_pgo/"+str(filename_list[0])+".txt"
+    # T0_1 = np.loadtxt(path0_1)
+    # T0_1.reshape(3, 4)
+    # T0_1 = np.hstack((T0_1, np.array([0, 0, 0, 1]))).reshape(4, 4)
+    # path0_2 = path+result2_file+"/trans/absolute_pgo/"+str(filename_list[0])+".txt"
+    # T0_2 = np.loadtxt(path0_2)
+    # T0_2.reshape(3, 4)
+    # T0_2 = np.hstack((T0_2, np.array([0, 0, 0, 1]))).reshape(4, 4)
+    for i in np.arange(0, len(filename_list)-1):
+        fileCur = filename_list[i]
+        fileNext = filename_list[i+1]
+
+        pathA = path+result1_file+"/trans/absolute_pgo/"+str(fileCur)+".txt"
+        T_a = np.loadtxt(pathA)
+        T_a.reshape(3, 4)
+        T_a = np.hstack((T_a, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        pathB = path+result1_file+"/trans/absolute_pgo/"+str(fileNext)+".txt"
+        T_b = np.loadtxt(pathB)
+        T_b.reshape(3, 4)
+        T_b = np.hstack((T_b, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        T_relative1 = np.dot(np.linalg.inv(T_a), T_b)
+
+        pathA = path+result2_file+"/trans/absolute_pgo/"+str(fileCur)+".txt"
+        T_a = np.loadtxt(pathA)
+        T_a.reshape(3, 4)
+        T_a = np.hstack((T_a, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        pathB = path+result2_file+"/trans/absolute_pgo/"+str(fileNext)+".txt"
+        T_b = np.loadtxt(pathB)
+        T_b.reshape(3, 4)
+        T_b = np.hstack((T_b, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        T_relative2 = np.dot(np.linalg.inv(T_a), T_b)
+
+        R_diff = np.dot(np.linalg.inv(T_relative1[:3, :3]), T_relative2[:3, :3])
+        # 正交化
+        U, D, Vt = svd(R_diff)
+        R_diff = np.dot(U, Vt)
+        # 计算旋转矩阵的行列式
+        det_R = np.linalg.det(R_diff)
+        # 计算行列式的三次方根
+        cbrt_det_R = abs(det_R) ** (1/3)
+        # 归一化旋转矩阵
+        R_diff = R_diff / cbrt_det_R
+        # 确保列向量是单位向量
+        for i in range(3):
+            R_diff[:, i] /= np.linalg.norm(R_diff[:, i])
+
+        t_diff = T_relative2[:3, 3] - T_relative1[:3, 3]
+        angle_diff = np.arccos((np.trace(R_diff)-1)/2)
+        dist_diff = np.sqrt(np.sum(np.square(t_diff)))
+        angle_diff_group.append(angle_diff)
+        dist_diff_group.append(dist_diff)
+        print(fileNext, ":")
+        print("(np.trace(R_diff)-1)/2: ", (np.trace(R_diff)-1)/2)
+        print("R_diff: ", R_diff)
+        print("angle_diff: ", angle_diff*180/np.pi, "deg")
+        print("dist_diff: ", dist_diff, "m")
+
+    # draw angle_diff and dist_diff
+    plt.figure()
+    plt.plot(filename_list[1:], angle_diff_group, 'r', label='angle_diff')
+    plt.plot(filename_list[1:], dist_diff_group, 'b', label='dist_diff')
+    plt.legend()
+    plt.show()
+
+
 
 if __name__ == '__main__':
-    path = "./data/project2/"
-    filename_list = np.arange(1, 33)
+    # path = "./data/project2/"
+    path = "/media/wbl/KESU1/data/whu_tls/project1/"
+    filename_list = np.arange(1, 62)
 
     ## read && downsample 
     ## 1. las to pcd (include downsample 1/10) 2. downsample(use voxelsize=0.05)
@@ -258,6 +333,8 @@ if __name__ == '__main__':
     # whutls_one2one_match(path, filename_list, SeqCur, SeqNext)
 
     pgo(path, filename_list)
+
+    compute_pose_diff(path, "project1_result", "result", filename_list)
 
     whutls_regis_from_absolute_trans(path, filename_list)
     # whutls_regis_from_relative_trans(path, filename_list)
