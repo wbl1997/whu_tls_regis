@@ -298,12 +298,96 @@ def compute_pose_diff(path, result1_file, result2_file, filename_list):
         print("dist_diff: ", dist_diff, "m")
 
     # draw angle_diff and dist_diff
-    plt.figure()
-    plt.plot(filename_list[1:], angle_diff_group, 'r', label='angle_diff')
-    plt.plot(filename_list[1:], dist_diff_group, 'b', label='dist_diff')
-    plt.legend()
+    # 创建图形对象
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    ax1.plot(filename_list[1:], angle_diff_group, 'r', label='angle_diff')
+    ax2.plot(filename_list[1:], dist_diff_group, 'b', label='dist_diff')
+    ax1.legend()
+    ax2.legend()
     plt.show()
 
+def test_compute_lc_pose_diff(path, filename_list, SeqCur, SeqLC):
+    if (os.path.exists(path)==False):
+        print(path+"NOT FIND!!!")
+        return
+    if SeqCur>SeqLC:
+        tmp = SeqCur
+        SeqCur = SeqLC
+        SeqLC = tmp
+    T1 = np.eye(4)
+    for i in np.arange(SeqCur-1, SeqLC-1):
+        fileCur = str(filename_list[i])
+        fileNext = str(filename_list[i+1])
+        # load relative trans from txt
+        T_relative_save_path = path+"result/trans/"+fileCur+"_"+fileNext+".txt"
+        T_relative = np.loadtxt(T_relative_save_path)
+        T_relative.reshape(3, 4)
+        T_relative = np.hstack((T_relative, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        T1 = np.dot(T1, T_relative)
+    T_LC_save_path = path+"result/trans/"+str(SeqCur)+"_"+str(SeqLC)+".txt"
+    T2 = np.loadtxt(T_LC_save_path)
+    T2.reshape(3, 4)
+    T2 = np.hstack((T2, np.array([0, 0, 0, 1]))).reshape(4, 4)
+
+    T_af_pgo_cur_path = path+"result/trans/absolute_pgo/"+str(SeqCur)+".txt"
+    T_cur = np.loadtxt(T_af_pgo_cur_path)
+    T_cur.reshape(3, 4)
+    T_cur = np.hstack((T_cur, np.array([0, 0, 0, 1]))).reshape(4, 4)
+    T_af_pgo_lc_path = path+"result/trans/absolute_pgo/"+str(SeqLC)+".txt"
+    T_lc = np.loadtxt(T_af_pgo_lc_path)
+    T_lc.reshape(3, 4)
+    T_lc = np.hstack((T_lc, np.array([0, 0, 0, 1]))).reshape(4, 4)
+    T3 = np.dot(np.linalg.inv(T_cur), T_lc)
+
+    # before pgo
+    T_diff = np.dot(np.linalg.inv(T1), T2)
+    R_diff = T_diff[:3, :3]
+    # 正交化
+    U, D, Vt = svd(R_diff)
+    R_diff = np.dot(U, Vt)
+    # 计算旋转矩阵的行列式
+    det_R = np.linalg.det(R_diff)
+    # 计算行列式的三次方根
+    cbrt_det_R = abs(det_R) ** (1/3)
+    # 归一化旋转矩阵
+    R_diff = R_diff / cbrt_det_R
+    # 确保列向量是单位向量
+    for i in range(3):
+        R_diff[:, i] /= np.linalg.norm(R_diff[:, i])
+
+    t_diff = T_diff[:3, 3]
+    angle_diff = np.arccos((np.trace(R_diff)-1)/2)
+    dist_diff = np.sqrt(np.sum(np.square(t_diff)))
+    print("pose loop diff between", SeqCur, "and", SeqLC, "before pgo:")
+    # print("(np.trace(R_diff)-1)/2: ", (np.trace(R_diff)-1)/2)
+    # print("R_diff: ", R_diff)
+    print("angle_diff: ", angle_diff*180/np.pi, "deg")
+    print("dist_diff: ", dist_diff, "m")
+
+    # after pgo
+    T_diff = np.dot(np.linalg.inv(T3), T2)
+    R_diff = T_diff[:3, :3]
+    # 正交化
+    U, D, Vt = svd(R_diff)
+    R_diff = np.dot(U, Vt)
+    # 计算旋转矩阵的行列式
+    det_R = np.linalg.det(R_diff)
+    # 计算行列式的三次方根
+    cbrt_det_R = abs(det_R) ** (1/3)
+    # 归一化旋转矩阵
+    R_diff = R_diff / cbrt_det_R
+    # 确保列向量是单位向量
+    for i in range(3):
+        R_diff[:, i] /= np.linalg.norm(R_diff[:, i])
+
+    t_diff = T_diff[:3, 3]
+    angle_diff = np.arccos((np.trace(R_diff)-1)/2)
+    dist_diff = np.sqrt(np.sum(np.square(t_diff)))
+    print("pose loop diff between", SeqCur, "and", SeqLC, "after pgo:")
+    # print("(np.trace(R_diff)-1)/2: ", (np.trace(R_diff)-1)/2)
+    # print("R_diff: ", R_diff)
+    print("angle_diff: ", angle_diff*180/np.pi, "deg")
+    print("dist_diff: ", dist_diff, "m")
 
 
 if __name__ == '__main__':
@@ -328,13 +412,14 @@ if __name__ == '__main__':
     #     inlier_rmse = whutls_one2one_match(path, filename_list, SeqCur, SeqNext)
     #     inlier_rmse_group.append(inlier_rmse)
     
-    # SeqCur = 35
-    # SeqNext = 36
+    # SeqCur = 10
+    # SeqNext = 61
     # whutls_one2one_match(path, filename_list, SeqCur, SeqNext)
 
     pgo(path, filename_list)
 
-    compute_pose_diff(path, "project1_result", "result", filename_list)
+    compute_pose_diff(path, "project1_result_1015", "result", filename_list)
+    # test_compute_lc_pose_diff(path, filename_list, 10, 61)
 
     whutls_regis_from_absolute_trans(path, filename_list)
     # whutls_regis_from_relative_trans(path, filename_list)
