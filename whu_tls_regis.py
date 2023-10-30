@@ -21,8 +21,11 @@ import gtsam
 import matplotlib.pyplot as plt
 from scipy.linalg import svd
 
+import icp_info
+
 VOXEL_SIZE = 0.05
 VISUALIZE = True
+SAVE_INFO = False
 
 def read_las_topcd(las_file, step_len=10):
     # 打开LAS文件
@@ -111,6 +114,7 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     fileCur = str(SeqCur)
     fileNext = str(SeqNext)
     print("fileCur: ", fileCur, ", fileNext: ", fileNext)
+
     # read pcd
     B_pcd_raw = o3d.io.read_point_cloud(path+"result/downsample/"+fileCur+".pcd")
     A_pcd_raw = o3d.io.read_point_cloud(path+"result/downsample/"+fileNext+".pcd")
@@ -123,9 +127,14 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
 
     print("refine use icp!", fileCur, fileNext)
     result_T = np.array( [[ 1,   -0,      0,   -0.0],
-                            [ 0.0,  1,      0,   0.0],
-                            [ 0,    0,      1,  0.0],
-                            [ 0.0,  0.0,  0.0,  1.0]]) 
+                          [ 0.0,  1,      0,    0.0],
+                          [ 0,    0,      1,    0.0],
+                          [ 0.0,  0.0,  0.0,    1.0]]) 
+    T_init_path = path+"result/init_trans/"+fileCur+"_"+fileNext+".txt"
+    if (os.path.exists(T_init_path)==True):
+        result_T = np.loadtxt(T_init_path)
+        result_T.reshape(3, 4)
+        result_T = np.hstack((result_T, np.array([0, 0, 0, 1]))).reshape(4, 4)
     A_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=2, max_nn=30))
     B_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=2, max_nn=30))
     threshold = 0.05
@@ -134,9 +143,34 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
         o3d.pipelines.registration.TransformationEstimationPointToPoint(),
         o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
     )
+    # result_T = reg_p2p.transformation
+    # print(result_T)
+    # print("regis inormation: ", reg_p2p.inlier_rmse)
+    if SAVE_INFO:
+        reg_result = icp_info.RegResult(reg_p2p)
+        reg_result.compute_icp_info(A_pcd, B_pcd, True, False)
+        regis_info_save_path = path+"result/trans/"+fileCur+"_"+fileNext+"_p2p_left.txt"
+        reg_result.save(regis_info_save_path)
+        reg_result.compute_icp_info(A_pcd, B_pcd, True, True)
+        regis_info_save_path = path+"result/trans/"+fileCur+"_"+fileNext+"_p2p_right.txt"
+        reg_result.save(regis_info_save_path)
+
+    reg_p2p = o3d.pipelines.registration.registration_icp(
+        A_pcd, B_pcd, threshold, result_T,
+        o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
+    )
     result_T = reg_p2p.transformation
     print(result_T)
     print("regis inormation: ", reg_p2p.inlier_rmse)
+    if SAVE_INFO:
+        reg_result = icp_info.RegResult(reg_p2p)
+        reg_result.compute_icp_info(A_pcd, B_pcd, True, False)
+        regis_info_save_path = path+"result/trans/"+fileCur+"_"+fileNext+"_p2s_left.txt"
+        reg_result.save(regis_info_save_path)
+        reg_result.compute_icp_info(A_pcd, B_pcd, True, True)
+        regis_info_save_path = path+"result/trans/"+fileCur+"_"+fileNext+"_p2s_right.txt"
+        reg_result.save(regis_info_save_path)
 
     ### save the transform source points and show regis_err
     # mkdir save path
@@ -157,7 +191,7 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     np.savetxt(RMSE_save_path, np.array([reg_p2p.inlier_rmse]), delimiter=' ', fmt='%.10f')
     return reg_p2p.inlier_rmse
 
-def pgo(path, filename_list):
+def pgo(path, filename_list, loop_index_list):
     if (os.path.exists(path)==False):
         print(path+"NOT FIND!!!")
         return
@@ -203,10 +237,15 @@ def pgo(path, filename_list):
     odomNoiseVector6 = np.array([1e-6, 1e-6, 1e-6, 1e-3, 1e-3, 1e-3])
     odomNoiseVector6 = 0.05*odomNoiseVector6
     noise_model = gtsam.noiseModel.Diagonal.Variances(odomNoiseVector6)
-    # project1
-    graph.add(gtsam.BetweenFactorPose3(key[9], key[60], gtsam.Pose3(T_lc), noise_model))
-    graph.add(gtsam.BetweenFactorPose3(key[9], key[59], gtsam.Pose3(T_lc), noise_model))
-    graph.add(gtsam.BetweenFactorPose3(key[8], key[60], gtsam.Pose3(T_lc), noise_model))
+    for i in range(len(loop_index_list)):
+        SeqCur = filename_list[loop_index_list[i][0]]
+        SeqLC = filename_list[loop_index_list[i][1]]
+        test_compute_lc_pose_diff(path, filename_list, SeqCur, SeqLC)
+        graph.add(gtsam.BetweenFactorPose3(key[loop_index_list[i][0]], key[loop_index_list[i][1]], gtsam.Pose3(T_lc), noise_model))
+    # # project1
+    # graph.add(gtsam.BetweenFactorPose3(key[9], key[60], gtsam.Pose3(T_lc), noise_model))
+    # graph.add(gtsam.BetweenFactorPose3(key[9], key[59], gtsam.Pose3(T_lc), noise_model))
+    # graph.add(gtsam.BetweenFactorPose3(key[8], key[60], gtsam.Pose3(T_lc), noise_model))
     # # project2
     # T_lc = [[ 9.99999856e-01, -3.59719349e-04, -3.98348280e-04,  3.78698882e-01],
     #         [ 3.59692769e-04,  9.99999933e-01, -6.67961378e-05, -8.05217088e-02],
@@ -339,7 +378,7 @@ def test_compute_lc_pose_diff(path, filename_list, SeqCur, SeqLC):
     T_lc = np.hstack((T_lc, np.array([0, 0, 0, 1]))).reshape(4, 4)
     T3 = np.dot(np.linalg.inv(T_cur), T_lc)
 
-    # before pgo
+    # before pgo #############################
     T_diff = np.dot(np.linalg.inv(T1), T2)
     R_diff = T_diff[:3, :3]
     # 正交化
@@ -359,12 +398,13 @@ def test_compute_lc_pose_diff(path, filename_list, SeqCur, SeqLC):
     angle_diff = np.arccos((np.trace(R_diff)-1)/2)
     dist_diff = np.sqrt(np.sum(np.square(t_diff)))
     print("pose loop diff between", SeqCur, "and", SeqLC, "before pgo:")
+    print("T_diff:\n", T_diff)
     # print("(np.trace(R_diff)-1)/2: ", (np.trace(R_diff)-1)/2)
     # print("R_diff: ", R_diff)
     print("angle_diff: ", angle_diff*180/np.pi, "deg")
     print("dist_diff: ", dist_diff, "m")
 
-    # after pgo
+    # after pgo #################################
     T_diff = np.dot(np.linalg.inv(T3), T2)
     R_diff = T_diff[:3, :3]
     # 正交化
@@ -384,19 +424,16 @@ def test_compute_lc_pose_diff(path, filename_list, SeqCur, SeqLC):
     angle_diff = np.arccos((np.trace(R_diff)-1)/2)
     dist_diff = np.sqrt(np.sum(np.square(t_diff)))
     print("pose loop diff between", SeqCur, "and", SeqLC, "after pgo:")
+    print("T_diff:\n", T_diff)
     # print("(np.trace(R_diff)-1)/2: ", (np.trace(R_diff)-1)/2)
     # print("R_diff: ", R_diff)
     print("angle_diff: ", angle_diff*180/np.pi, "deg")
     print("dist_diff: ", dist_diff, "m")
 
-
-if __name__ == '__main__':
-    # path = "./data/project2/"
-    path = "/media/wbl/KESU1/data/whu_tls/project1/"
-    filename_list = np.arange(1, 62)
-
+def seq_regis_main(path, filename_list, loop_index_list):
     ## read && downsample 
-    ## 1. las to pcd (include downsample 1/10) 2. downsample(use voxelsize=0.05)
+    ### 1. las to pcd (include downsample 1/10) 
+    ### 2. downsample(use voxelsize=0.05)
     # data_down_sample(path, filename_list)
 
     ## choice 1: solve all
@@ -416,10 +453,25 @@ if __name__ == '__main__':
     # SeqNext = 61
     # whutls_one2one_match(path, filename_list, SeqCur, SeqNext)
 
-    pgo(path, filename_list)
+    # pgo(path, filename_list, loop_index_list)
 
-    compute_pose_diff(path, "project1_result_1015", "result", filename_list)
-    # test_compute_lc_pose_diff(path, filename_list, 10, 61)
-
-    whutls_regis_from_absolute_trans(path, filename_list)
+    # whutls_regis_from_absolute_trans(path, filename_list)
     # whutls_regis_from_relative_trans(path, filename_list)
+
+    # compute_pose_diff(path, "project1_result_1015", "result", filename_list)
+
+    for i in range(len(loop_index_list)):
+        SeqCur = filename_list[loop_index_list[i][0]]
+        SeqLC = filename_list[loop_index_list[i][1]]
+        test_compute_lc_pose_diff(path, filename_list, SeqCur, SeqLC)
+
+if __name__ == '__main__':
+    # path = "/media/wbl/KESU1/data/whu_tls/project1/"
+    # filename_list = np.arange(1, 62)
+    # loop_index_list = [[9, 60], [9, 59], [8, 60]]
+    # seq_regis_main(path, filename_list, loop_index_list)
+
+    path = "/media/wbl/KESU1/data/whu_tls/project2/"
+    filename_list = np.arange(1, 33)
+    loop_index_list = [[2, 21]]
+    seq_regis_main(path, filename_list, loop_index_list)
