@@ -145,7 +145,7 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     )
     # result_T = reg_p2p.transformation
     # print(result_T)
-    # print("regis inormation: ", reg_p2p.inlier_rmse)
+    # print("regis information: ", reg_p2p.inlier_rmse)
     if SAVE_INFO:
         reg_result = icp_info.RegResult(reg_p2p)
         reg_result.compute_icp_info(A_pcd, B_pcd, True, False)
@@ -162,7 +162,7 @@ def whutls_one2one_match(path, filename_list, SeqCur, SeqNext):
     )
     result_T = reg_p2p.transformation
     print(result_T)
-    print("regis inormation: ", reg_p2p.inlier_rmse)
+    print("regis information: ", reg_p2p.inlier_rmse)
     if SAVE_INFO:
         reg_result = icp_info.RegResult(reg_p2p)
         reg_result.compute_icp_info(A_pcd, B_pcd, True, False)
@@ -465,13 +465,223 @@ def seq_regis_main(path, filename_list, loop_index_list):
         SeqLC = filename_list[loop_index_list[i][1]]
         test_compute_lc_pose_diff(path, filename_list, SeqCur, SeqLC)
 
+def two_projects_regis(homepath, project1, project2, match_seqs_list):
+    if (os.path.exists(homepath)==False):
+        print(homepath+"NOT FIND!!!")
+        return
+    path = homepath+project1+"_"+project2+"/"
+    if (os.path.exists(path)==False):
+        os.makedirs(path)
+        os.makedirs(path+"result/init_trans/")
+        os.makedirs(path+"result/trans/")
+        os.makedirs(path+"result/regis/PCD_pairs/")
+    W1_T_W2_list = []
+    for i in range(len(match_seqs_list)):
+        Seq1 = str(match_seqs_list[i][0])
+        Seq2 = str(match_seqs_list[i][1])
+        # read pcd
+        B_pcd_raw = o3d.io.read_point_cloud(homepath+project1+"/result/regis/"+str(Seq1)+".pcd")
+        A_pcd_raw = o3d.io.read_point_cloud(homepath+project2+"/result/regis/"+str(Seq2)+".pcd")
+        A_pcd = copy.deepcopy(A_pcd_raw)
+        B_pcd = copy.deepcopy(B_pcd_raw)
+        result_T = np.array( [[ 1,   -0,      0,   -0.0],
+                          [ 0.0,  1,      0,    0.0],
+                          [ 0,    0,      1,    0.0],
+                          [ 0.0,  0.0,  0.0,    1.0]]) 
+        T_init_path = path+"result/init_trans/"+Seq1+"_"+Seq2+".txt"
+        if (os.path.exists(T_init_path)==True):
+            result_T = np.loadtxt(T_init_path)
+            result_T.reshape(3, 4)
+            result_T = np.hstack((result_T, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        A_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=2, max_nn=30))
+        B_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=2, max_nn=30))
+        threshold = 0.05
+        reg_p2p = o3d.pipelines.registration.registration_icp(
+            A_pcd, B_pcd, threshold, result_T,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
+        )
+
+        result_T = reg_p2p.transformation
+        # print(result_T)
+        # print("regis inormation: ", reg_p2p.inlier_rmse)
+
+        # save pcd and T
+        pcd_pair_save_path = path+"result/regis/PCD_pairs/"+Seq1+"_"+Seq2+"/"
+        if (os.path.exists(pcd_pair_save_path)==False):
+            os.makedirs(pcd_pair_save_path)
+        A_pcd = copy.deepcopy(A_pcd_raw)
+        o3d.io.write_point_cloud(pcd_pair_save_path+Seq2+"_p2.pcd", A_pcd)
+        A_pcd.transform(result_T)
+        o3d.io.write_point_cloud(pcd_pair_save_path+Seq2+"_p2_regisd.pcd", A_pcd)
+        B_pcd = copy.deepcopy(B_pcd_raw)
+        o3d.io.write_point_cloud(pcd_pair_save_path+Seq1+"_p1.pcd", B_pcd)
+        # save T path
+        if (os.path.exists(path+"/result/trans/")==False):
+            os.makedirs(path+"/result/trans/")
+        T_save_path = path+"/result/trans/"+Seq1+"_"+Seq2+".txt"
+        np.savetxt(T_save_path, (result_T[:3, :]).flatten().reshape(1, -1), delimiter=' ', fmt='%.10f')
+        # save rmse path
+        RMSE_save_path = path+"result/trans/"+Seq1+"_"+Seq2+"_rmse.txt"
+        np.savetxt(RMSE_save_path, np.array([reg_p2p.inlier_rmse]), delimiter=' ', fmt='%.10f')
+
+        # compute W1_T_W2
+        W1_T_W2 = np.eye(4)
+        T1_path = homepath+project1+"/result/trans/absolute_pgo/"+Seq1+".txt"
+        T1 = np.loadtxt(T1_path)
+        T1.reshape(3, 4)
+        T1 = np.hstack((T1, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        T2_path = homepath+project2+"/result/trans/absolute_pgo/"+Seq2+".txt"
+        T2 = np.loadtxt(T2_path)
+        T2.reshape(3, 4)
+        T2 = np.hstack((T2, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        W1_T_W2 = T1 @ result_T @ np.linalg.inv(T2)
+        W1_T_W2_list.append(W1_T_W2)
+        print("W1_T_W2: ", Seq1, "_", Seq2, "\n", W1_T_W2)
+
+    # uniform coordinate system
+    W1_T_W2_mean = np.zeros((4, 4))
+    for i in range(len(W1_T_W2_list)):
+        W1_T_W2_mean = W1_T_W2_mean + W1_T_W2_list[i]
+    W1_T_W2_mean = W1_T_W2_mean / len(W1_T_W2_list)
+    print("W1_T_W2_mean: ", W1_T_W2_mean)
+
+    return W1_T_W2_mean
+
+
+def pgo_for_multi_projects(homepath, project_list, filename_list_list, loop_index_list_list, match_seqs_list_list, match_seqs_mark_list):
+    if (os.path.exists(homepath)==False):
+        print(homepath+"NOT FIND!!!")
+        return
+    # 创建一个因子图
+    graph = gtsam.NonlinearFactorGraph()
+    # 创建一个初始的位姿估计
+    initial_estimate = gtsam.Values()
+
+    key = []
+    # add key and relative constraint and loop constraint
+    for i in range(len(project_list)):
+        path = homepath+project_list[i]+"/"
+        if (os.path.exists(path)==False):
+            print(path+"NOT FIND!!!")
+            return
+        # key
+        key_tmp = []
+        for j in np.arange(0, len(filename_list_list[i])):
+            fileCur = filename_list_list[i][j]
+            key_tmp.append(gtsam.symbol('x', fileCur))
+            # 初始化位置和姿态为单位矩阵4*4
+            initial_estimate.insert(key_tmp[j], gtsam.Pose3(np.eye(4)))
+        key.append(key_tmp)
+        # i=0, 添加prior factor
+        if i==0:
+            odomNoiseVector6 = np.array([1e-12, 1e-12, 1e-12, 1e-12, 1e-12, 1e-12])
+            noise_model = gtsam.noiseModel.Diagonal.Variances(odomNoiseVector6)
+            graph.add(gtsam.PriorFactorPose3(key[0][0], gtsam.Pose3(np.eye(4)), noise_model))
+        # relative constraint
+        for j in np.arange(0, len(filename_list_list[i])-1):
+            fileCur = filename_list_list[i][j]
+            fileNext = filename_list_list[i][j+1]
+            T_relative_save_path = path+"result/trans/"+str(fileCur)+"_"+str(fileNext)+".txt"
+            T_relative = np.loadtxt(T_relative_save_path)
+            T_relative.reshape(3, 4)
+            T_relative = np.hstack((T_relative, np.array([0, 0, 0, 1]))).reshape(4, 4)
+
+            RMSE_save_path = path+"result/trans/"+str(fileCur)+"_"+str(fileNext)+"_rmse.txt"
+            rmse_tmp = np.loadtxt(RMSE_save_path)
+            odomNoiseVector6 = np.array([1e-6, 1e-6, 1e-6, 1e-3, 1e-3, 1e-3])
+            odomNoiseVector6 = rmse_tmp*odomNoiseVector6
+            noise_model = gtsam.noiseModel.Diagonal.Variances(odomNoiseVector6)
+            graph.add(gtsam.BetweenFactorPose3(key[i][j], key[i][j+1], gtsam.Pose3(T_relative), noise_model))
+        # loop constraint
+        T_lc = np.eye(4)
+        odomNoiseVector6 = np.array([1e-6, 1e-6, 1e-6, 1e-3, 1e-3, 1e-3])
+        odomNoiseVector6 = 0.05*odomNoiseVector6
+        noise_model = gtsam.noiseModel.Diagonal.Variances(odomNoiseVector6)
+        for j in range(len(loop_index_list_list[i])):
+            SeqCur = filename_list_list[i][loop_index_list_list[i][j][0]]
+            SeqLC = filename_list_list[i][loop_index_list_list[i][j][1]]
+            graph.add(gtsam.BetweenFactorPose3(key[i][loop_index_list_list[i][j][0]], key[i][loop_index_list_list[i][j][1]], gtsam.Pose3(T_lc), noise_model))
+
+    # add match constraint
+    odomNoiseVector6 = np.array([1e-6, 1e-6, 1e-6, 1e-3, 1e-3, 1e-3])
+    odomNoiseVector6 = 0.05*odomNoiseVector6
+    noise_model = gtsam.noiseModel.Diagonal.Variances(odomNoiseVector6)
+    for i in range(len(match_seqs_list_list)):
+        for j in range(len(match_seqs_list_list[i])):
+            Seq1 = match_seqs_list[i][j][0]
+            Seq2 = match_seqs_list[i][j][1]
+            path = homepath+project_list[match_seqs_mark_list[i][0]]+"_"+project_list[match_seqs_mark_list[i][1]]+"/"
+            if (os.path.exists(path+"/result/trans/")==False):
+                os.makedirs(path+"/result/trans/")
+            T_save_path = path+"/result/trans/"+str(Seq1)+"_"+str(Seq2)+".txt"
+            T_relative = np.loadtxt(T_save_path)
+            T_relative.reshape(3, 4)
+            T_relative = np.hstack((T_relative, np.array([0, 0, 0, 1]))).reshape(4, 4)
+            graph.add(gtsam.BetweenFactorPose3(key[match_seqs_mark_list[i][0]][Seq1-1], 
+                                               key[match_seqs_mark_list[i][1]][Seq2-1], 
+                                               gtsam.Pose3(T_relative), noise_model))
+            
+    # 创建优化问题
+    optimizer = gtsam.LevenbergMarquardtOptimizer(graph, initial_estimate)
+    # 运行优化
+    result = optimizer.optimize()
+
+    # 输出优化结果
+    optimized_pose = []
+    for i in range(len(project_list)):
+        optimized_pose_tmp = []
+        for j in np.arange(0, len(filename_list_list[i])):
+            fileCur = filename_list_list[i][j]
+            optimized_pose_tmp.append(result.atPose3(key[i][j]))
+            print('Init result:\n{}'.format(initial_estimate.atPose3(key[i][j])))
+            print('Optimized result:\n{}'.format(result.atPose3(key[i][j])))
+        optimized_pose.append(optimized_pose_tmp)
+
+
 if __name__ == '__main__':
     # path = "/media/wbl/KESU1/data/whu_tls/project1/"
     # filename_list = np.arange(1, 62)
     # loop_index_list = [[9, 60], [9, 59], [8, 60]]
     # seq_regis_main(path, filename_list, loop_index_list)
 
-    path = "/media/wbl/KESU1/data/whu_tls/project2/"
-    filename_list = np.arange(1, 33)
-    loop_index_list = [[2, 21]]
-    seq_regis_main(path, filename_list, loop_index_list)
+    # path = "/media/wbl/KESU1/data/whu_tls/project2/"
+    # filename_list = np.arange(1, 33)
+    # loop_index_list = [[2, 21]]  # name-1: (3, 22)
+    # seq_regis_main(path, filename_list, loop_index_list)
+
+    ## two_projects_regis
+    path = "/media/wbl/KESU/data/whu_tls/"
+    project1 = "project1"
+    project2 = "project2"
+    match_seqs_list = [[1, 1], [2, 2], [3, 3], [5, 15], [6, 13]]
+    W1_T_W2_mean = two_projects_regis(path, project1, project2, match_seqs_list)
+    ## uniform coordinate system
+    filename_list_list = [np.arange(1, 62), np.arange(1, 33)]
+    if(os.path.exists(path+project2+"/result/trans/uniform_trans/")==False):
+        os.makedirs(path+project2+"/result/trans/uniform_trans/")
+    for i in range(len(filename_list_list[1])):
+        Seq2 = filename_list_list[1][i]
+        T2_path = path+project2+"/result/trans/absolute_pgo/"+str(Seq2)+".txt"
+        T2 = np.loadtxt(T2_path)
+        T2.reshape(3, 4)
+        T2 = np.hstack((T2, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        T2_uniform = np.dot(W1_T_W2_mean, T2)
+        ## save T2_uniform
+        T2_uniform_path = path+project2+"/result/trans/uniform_trans/"+str(Seq2)+".txt"
+        np.savetxt(T2_uniform_path, (T2_uniform[:3, :]).flatten().reshape(1, -1), delimiter=' ', fmt='%.10f')
+        ## convert pcd
+        pcd_path = path+project2+"/result/regis/"+str(Seq2)+".pcd"
+        pcd = o3d.io.read_point_cloud(pcd_path)
+        pcd.transform(T2_uniform)
+        pcd_save_path = path+project2+"/result/regis/"+str(Seq2)+"_uniform.pcd"
+        o3d.io.write_point_cloud(pcd_save_path, pcd)
+
+
+    ## pgo_for_multi_projects
+    # project_list = ["project1", "project2"]
+    # filename_list_list = [np.arange(1, 62), np.arange(1, 33)]
+    # loop_index_list_list = [[[9, 60], [9, 59], [8, 60]], [[2, 21]]]
+    # match_seqs_list_list = [[[1, 1], [2, 2], [3, 3]]] # [[project1, project2], [project1, project3], [project2, project3], ...]
+    # match_seqs_mark_list = [[1, 2]]
+    # pgo_for_multi_projects(path, project_list, filename_list_list, loop_index_list_list, match_seqs_list_list)
