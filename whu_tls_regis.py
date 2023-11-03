@@ -756,7 +756,7 @@ if __name__ == '__main__':
         T2_uniform_path = path+project2+"/result/trans/uniform_trans/"+str(Seq2)+".txt"
         np.savetxt(T2_uniform_path, (T2_uniform[:3, :]).flatten().reshape(1, -1), delimiter=' ', fmt='%.10f')
         ## convert pcd
-        pcd_path = path+project2+"/result/regis/"+str(Seq2)+".pcd"
+        pcd_path = path+project2+"/result/downsample/"+str(Seq2)+".pcd"
         pcd = o3d.io.read_point_cloud(pcd_path)
         pcd.transform(T2_uniform)
         pcd_save_path = path+project2+"/result/regis/"+str(Seq2)+"_uniform.pcd"
