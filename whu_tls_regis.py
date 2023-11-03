@@ -527,19 +527,19 @@ def two_projects_regis(homepath, project1, project2, match_seqs_list):
 
         # compute W1_T_W2
         W1_T_W2 = np.eye(4)
-        T1_path = homepath+project1+"/result/trans/absolute_pgo/"+Seq1+".txt"
-        T1 = np.loadtxt(T1_path)
-        T1.reshape(3, 4)
-        T1 = np.hstack((T1, np.array([0, 0, 0, 1]))).reshape(4, 4)
-        T2_path = homepath+project2+"/result/trans/absolute_pgo/"+Seq2+".txt"
-        T2 = np.loadtxt(T2_path)
-        T2.reshape(3, 4)
-        T2 = np.hstack((T2, np.array([0, 0, 0, 1]))).reshape(4, 4)
-        W1_T_W2 = T1 @ result_T @ np.linalg.inv(T2)
+        # T1_path = homepath+project1+"/result/trans/absolute_pgo/"+Seq1+".txt"
+        # T1 = np.loadtxt(T1_path)
+        # T1.reshape(3, 4)
+        # T1 = np.hstack((T1, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        # T2_path = homepath+project2+"/result/trans/absolute_pgo/"+Seq2+".txt"
+        # T2 = np.loadtxt(T2_path)
+        # T2.reshape(3, 4)
+        # T2 = np.hstack((T2, np.array([0, 0, 0, 1]))).reshape(4, 4)
+        # W1_T_W2 = T1 @ result_T @ np.linalg.inv(T2)
+        W1_T_W2 = result_T
         W1_T_W2_list.append(W1_T_W2)
         print("W1_T_W2: ", Seq1, "_", Seq2, "\n", W1_T_W2)
 
-    # uniform coordinate system
     W1_T_W2_mean = np.zeros((4, 4))
     for i in range(len(W1_T_W2_list)):
         W1_T_W2_mean = W1_T_W2_mean + W1_T_W2_list[i]
@@ -548,6 +548,90 @@ def two_projects_regis(homepath, project1, project2, match_seqs_list):
 
     return W1_T_W2_mean
 
+def two_projects_regis_bymergepcd(homepath, project1, project2, match_seqs_list):
+    if (os.path.exists(homepath)==False):
+        print(homepath+"NOT FIND!!!")
+        return
+    path = homepath+project1+"_"+project2+"/"
+    if (os.path.exists(path)==False):
+        os.makedirs(path)
+        os.makedirs(path+"result/init_trans/")
+        os.makedirs(path+"result/trans/")
+        os.makedirs(path+"result/regis/PCD_pairs/")
+    W1_T_W2_list = []
+
+    # merge pcd
+    A_merge_pcd = o3d.geometry.PointCloud()
+    B_merge_pcd = o3d.geometry.PointCloud()
+    for i in range(len(match_seqs_list)):
+        Seq1 = str(match_seqs_list[i][0])
+        Seq2 = str(match_seqs_list[i][1])
+        # read pcd
+        B_pcd_raw = o3d.io.read_point_cloud(homepath+project1+"/result/regis/"+str(Seq1)+".pcd")
+        A_pcd_raw = o3d.io.read_point_cloud(homepath+project2+"/result/regis/"+str(Seq2)+".pcd")
+        A_pcd = copy.deepcopy(A_pcd_raw)
+        B_pcd = copy.deepcopy(B_pcd_raw)
+       
+        A_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=2, max_nn=30))
+        B_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=2, max_nn=30))
+
+        A_merge_pcd += A_pcd
+        B_merge_pcd += B_pcd
+    
+    # regis
+    result_T = np.array( [[ 1,   -0,      0,   -0.0],
+                          [ 0.0,  1,      0,    0.0],
+                          [ 0,    0,      1,    0.0],
+                          [ 0.0,  0.0,  0.0,    1.0]]) 
+    T_init_path = path+"result/init_trans/"+str(match_seqs_list[0][0])+"_"+str(match_seqs_list[0][1])+".txt"
+    if (os.path.exists(T_init_path)==True):
+        result_T = np.loadtxt(T_init_path)
+        result_T.reshape(3, 4)
+        result_T = np.hstack((result_T, np.array([0, 0, 0, 1]))).reshape(4, 4)
+
+    threshold = 0.05
+    reg_p2p = o3d.pipelines.registration.registration_icp(
+        A_merge_pcd, B_merge_pcd, threshold, result_T,
+        o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
+    )
+
+    result_T = reg_p2p.transformation
+
+    # save pcd and T
+    pcd_pair_save_path = path+"result/regis/"
+    if (os.path.exists(pcd_pair_save_path)==False):
+        os.makedirs(pcd_pair_save_path)
+    o3d.io.write_point_cloud(pcd_pair_save_path+"p2_merge.pcd", A_merge_pcd)
+    A_merge_pcd.transform(result_T)
+    o3d.io.write_point_cloud(pcd_pair_save_path+"p2_regisd_merge.pcd", A_merge_pcd)
+    o3d.io.write_point_cloud(pcd_pair_save_path+"p1_merge.pcd", B_merge_pcd)
+    # save T path
+    if (os.path.exists(path+"/result/trans/")==False):
+        os.makedirs(path+"/result/trans/")
+    T_save_path = path+"/result/trans/merge_trans.txt"
+    np.savetxt(T_save_path, (result_T[:3, :]).flatten().reshape(1, -1), delimiter=' ', fmt='%.10f')
+    # save rmse path
+    RMSE_save_path = path+"result/trans/merge_trans_rmse.txt"
+    np.savetxt(RMSE_save_path, np.array([reg_p2p.inlier_rmse]), delimiter=' ', fmt='%.10f')
+
+    # # compute W1_T_W2
+    # W1_T_W2 = np.eye(4)
+    # T1_path = homepath+project1+"/result/trans/absolute_pgo/"+str(match_seqs_list[0][0])+".txt"
+    # T1 = np.loadtxt(T1_path)
+    # T1.reshape(3, 4)
+    # T1 = np.hstack((T1, np.array([0, 0, 0, 1]))).reshape(4, 4)
+    # T2_path = homepath+project2+"/result/trans/absolute_pgo/"+str(match_seqs_list[0][1])+".txt"
+    # T2 = np.loadtxt(T2_path)
+    # T2.reshape(3, 4)
+    # T2 = np.hstack((T2, np.array([0, 0, 0, 1]))).reshape(4, 4)
+    # W1_T_W2 = T1 @ result_T @ np.linalg.inv(T2)
+    # W1_T_W2_list.append(W1_T_W2)
+    # print("W1_T_W2: ", Seq1, "_", Seq2, "\n", W1_T_W2)
+
+    print("W1_T_W2: \n", result_T)
+
+    return result_T
 
 def pgo_for_multi_projects(homepath, project_list, filename_list_list, loop_index_list_list, match_seqs_list_list, match_seqs_mark_list):
     if (os.path.exists(homepath)==False):
@@ -655,7 +739,8 @@ if __name__ == '__main__':
     project1 = "project1"
     project2 = "project2"
     match_seqs_list = [[1, 1], [2, 2], [3, 3], [5, 15], [6, 13]]
-    W1_T_W2_mean = two_projects_regis(path, project1, project2, match_seqs_list)
+    # W1_T_W2_mean = two_projects_regis(path, project1, project2, match_seqs_list)
+    W1_T_W2_mean = two_projects_regis_bymergepcd(path, project1, project2, match_seqs_list)
     ## uniform coordinate system
     filename_list_list = [np.arange(1, 62), np.arange(1, 33)]
     if(os.path.exists(path+project2+"/result/trans/uniform_trans/")==False):
@@ -676,7 +761,6 @@ if __name__ == '__main__':
         pcd.transform(T2_uniform)
         pcd_save_path = path+project2+"/result/regis/"+str(Seq2)+"_uniform.pcd"
         o3d.io.write_point_cloud(pcd_save_path, pcd)
-
 
     ## pgo_for_multi_projects
     # project_list = ["project1", "project2"]
