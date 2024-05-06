@@ -2,7 +2,7 @@
 # -*- coding:utf-8 -*-
 
 """
-whu_tls_rigis.py
+Refine TLS scan registration results by ICP and PGO.
 """
 
 __author__  = "wbl"
