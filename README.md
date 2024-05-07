@@ -31,3 +31,13 @@ starting from the baseketball court.
 
 # Initial lidar pose refinement
 Given the initial lidar pose, and the corresponding TLS scan, refine the lidar pose wrt the TLS scan.
+
+Steps
+1. get the initial pose for a sequence in cloudcompare manually.
+2. get_snapshots_from_bag at front and back
+3. refine_initial_lidar_pose for the front and back poses
+4. reverse_bag for the backward processing
+5. fastlio2 in sequential loc mode for the front subsequence and the back backward subsequence
+6. fastlio2 in sequential odometry mode
+7. merge the localization result and the odometry result by PGO.
+
