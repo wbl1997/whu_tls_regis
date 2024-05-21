@@ -155,6 +155,11 @@ def reverse_bag(input_bag, output_bag, lidar_topic, imu_topic, duration):
     imudatalist = []
     lidartimelist = []
 
+    maxtimefile = os.path.join(outputdir, 'bag_maxtime.txt')
+    with open(maxtimefile, 'w') as f:
+        f.write(f'{t_max.secs}.{t_max.nsecs:09d}\n')
+        f.write(f'{tmax2.secs}.{tmax2.nsecs:09d}\n')
+
     if use_pypcd:
         from pypcd4 import PointCloud
 
