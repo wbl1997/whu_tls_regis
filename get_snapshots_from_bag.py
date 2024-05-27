@@ -107,7 +107,7 @@ def get_snapshots_from_bag(bagfile, outdir, image_topic, lidar_topic):
 if __name__ == '__main__':
     import sys
     if len(sys.argv) < 3:
-        print('Usage: python get_snapshots_from_bag.py <bagfile> <outdir> '
+        print('Usage: python get_snapshots_from_bag.py <bagfile/folder> <outdir> '
              '[image_topic=/zed2i/zed_node/left_raw/image_raw_gray/compressed] [lidar_topic=/hesai/pandar]')
         sys.exit(1)
 
