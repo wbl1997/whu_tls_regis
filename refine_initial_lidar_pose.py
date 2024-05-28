@@ -115,7 +115,7 @@ if __name__ == "__main__":
             o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
         )
         tls_T_lidar = reg_p2l.transformation
-        print("TLS to lidar transformation:")
+        print("Refined TLS to lidar transformation:")
         print(tls_T_lidar)
         print("{}".format(reg_p2l))
         if showresult:

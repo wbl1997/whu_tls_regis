@@ -38,6 +38,7 @@ def write_pcd_file(msg, fieldnames, filename):
 
 
 def get_snapshots_from_bag(bagfile, outdir, image_topic, lidar_topic):
+    print("get snapshots from bagfile:", bagfile, "image_topic:", image_topic, "lidar_topic:", lidar_topic)
     front_dir = os.path.join(outdir, 'front')
     back_dir = os.path.join(outdir, 'back')
     if not os.path.exists(front_dir):
@@ -46,6 +47,11 @@ def get_snapshots_from_bag(bagfile, outdir, image_topic, lidar_topic):
         os.makedirs(back_dir)
 
     bag = rosbag.Bag(bagfile)
+    topics = bag.get_type_and_topic_info()
+    if image_topic not in topics.topics:
+        print(f"image topic {image_topic} not in the bag")
+        return
+
     image_lidar_pairs = []
     prev_time_and_type = []
     for topic, msg, t in bag.read_messages():
@@ -87,11 +93,17 @@ def get_snapshots_from_bag(bagfile, outdir, image_topic, lidar_topic):
     for topic, msg, t in bag.read_messages():
         if topic == image_topic:
             if abs(t - front_times[0]) < rospy.Duration(0.01):
-                cv_image = bridge.compressed_imgmsg_to_cv2(msg)
+                if topic.endswith('compressed'):
+                    cv_image = bridge.compressed_imgmsg_to_cv2(msg)
+                else:
+                    cv_image = bridge.imgmsg_to_cv2(msg)
                 image_path = os.path.join(front_dir, f'{t.secs}.{t.nsecs:09d}.jpg')
                 cv2.imwrite(image_path, cv_image)
             elif abs(t - back_times[0]) < rospy.Duration(0.01):
-                cv_image = bridge.compressed_imgmsg_to_cv2(msg)
+                if topic.endswith('compressed'):
+                    cv_image = bridge.compressed_imgmsg_to_cv2(msg)
+                else:
+                    cv_image = bridge.imgmsg_to_cv2(msg)
                 image_path = os.path.join(back_dir, f'{t.secs}.{t.nsecs:09d}.jpg')
                 cv2.imwrite(image_path, cv_image)
         elif topic == lidar_topic:
