@@ -236,8 +236,8 @@ def favor_mti3dk(bagfile):
     bag.close()
     if '/mti3dk/imu' in topics:
         return '/mti3dk/imu'
-    if '/x36d/imu' in topics:
-        return '/x36d/imu'
+    if '/x36d/imu_raw' in topics:
+        return '/x36d/imu_raw'
     else:
         print('Error: No mti3dk or x36d IMU topic found in the bag')
         return ''
