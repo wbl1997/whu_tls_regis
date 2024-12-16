@@ -2,8 +2,10 @@
 # run this shell from whu_tls_regis folder.
 
 datadir="/media/jhuai/BackupPlus/jhuai/data/homebrew/zongmu"
-init_pose_dir="/media/jhuai/BackupPlus/jhuai/results/front_back_snapshots"
-backduration=240
+datadir="/media/pi/My_Book/jhuai/data/zip"
+init_pose_dir="/media/pi/BackupPlus/jhuai/results/front_back_snapshots"
+
+backduration=100000
 
 bags202312=(20231201/data2
       20231201/data3
@@ -40,19 +42,27 @@ bag20231109=(20231109/data1
 20231109/data3
 20231109/data4)
 
+loc_check_bags=(
+  20231105/data6
+  20231109/data3
+  20231109/data4
+)
 
 reverse_bags() {
 bagnames=("${@}")
 for bag in "${bagnames[@]}"; do
-  echo "Reversing bag: "$bag"_aligned.bag"
+  echo "Reversing bag: $bag"
   date=${bag%%/*} # the first part of $bag
   run=${bag#*/} # the second part of $bag
-  bagfile=$datadir/"$bag"_aligned.bag
+  bagfile=$datadir/$bag.bag
   outbagfile=$init_pose_dir/$date/$run/back/"$run"_aligned.bag
   echo "bagfile: $bagfile"
   echo "outbagfile: $outbagfile"
-  python3 reverse_bag.py $bagfile $outbagfile /hesai/pandar /mti3dk/imu $backduration
+  cmd="python3 reverse_bag.py $bagfile $outbagfile /hesai/pandar /mti3dk/imu $backduration"
+  echo $cmd
+  $cmd
 done
 }
 
-reverse_bags "${bags202312[@]}"
+# reverse_bags "${bags202312[@]}"
+reverse_bags "${loc_check_bags[@]}"
