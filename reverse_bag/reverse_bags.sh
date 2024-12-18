@@ -1,4 +1,5 @@
 #!/bin/bash
+# WARN: Deprecated
 # run this shell from whu_tls_regis folder.
 
 datadir="/media/pi/My_Book/jhuai/data/zongmu"
