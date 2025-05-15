@@ -77,13 +77,7 @@ if __name__ == '__main__':
             print(f"Collating poses from {fn_pgo}")
             pgo_line = load_pose_lines(fn_pgo)[0]
             uni_line = load_pose_lines(fn_uni)[0]
-            T_pgo = line_to_pose(pgo_line)
-            T_uni = line_to_pose(uni_line)
-            T_combined = T_uni.dot(T_pgo)
-            # Write 3×4 block row-wise with 12 decimal places
-            for i in range(3):
-                out.write(' '.join(f"{T_combined[i,j]:.10f}" for j in range(4)) + ' ')
-            out.write('\n')
+            out.write(uni_line + '\n')
             count += 1
 
     print(f"Collated {count} poses into '{args.output_txt}'")

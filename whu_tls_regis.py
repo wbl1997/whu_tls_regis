@@ -17,7 +17,7 @@ import time
 import numpy as np
 import open3d as o3d
 import laspy
-import gtsam
+
 import matplotlib.pyplot as plt
 from scipy.linalg import svd
 
@@ -197,6 +197,7 @@ def pgo(path, filename_list, loop_index_list):
         return
 
     # 创建一个因子图
+    import gtsam
     graph = gtsam.NonlinearFactorGraph()
     # 创建一个初始的位姿估计
     initial_estimate = gtsam.Values()
@@ -637,6 +638,7 @@ def pgo_for_multi_projects(homepath, project_list, filename_list_list, loop_inde
     if (os.path.exists(homepath)==False):
         print(homepath+"NOT FIND!!!")
         return
+    import gtsam
     # 创建一个因子图
     graph = gtsam.NonlinearFactorGraph()
     # 创建一个初始的位姿估计
